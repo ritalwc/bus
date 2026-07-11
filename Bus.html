@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>出行巴士看板</title>
+    <style>
+        /* 專為 Likebook P78 墨水屏優化的黑白高對比樣式 */
+        body {
+            background-color: white;
+            color: black;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 30px;
+        }
+        .header {
+            font-size: 32px;
+            font-weight: bold;
+            border-bottom: 5px solid black;
+            padding-bottom: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        .update-time {
+            font-size: 22px;
+            color: #555;
+            font-weight: normal;
+        }
+        /* 每條巴士線佔用一行 */
+        .bus-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 3px solid black;
+            padding: 30px 0;
+        }
+        /* 路線號碼加大加粗 */
+        .route-badge {
+            font-size: 80px;
+            font-weight: 900;
+            width: 220px;
+            letter-spacing: -2px;
+        }
+        .route-info {
+            flex: 1;
+            padding-left: 10px;
+        }
+        .destination {
+            font-size: 32px;
+            font-weight: bold;
+        }
+        /* 到站時間顯示 */
+        .eta-times {
+            font-size: 36px;
+            text-align: right;
+            font-weight: bold;
+            width: 320px;
+        }
+        /* 剩餘分鐘的數字加上底線和放大，方便一眼看清 */
+        .eta-times b {
+            font-size: 54px;
+            text-decoration: underline;
+        }
+        .error-msg {
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <span>🚌 實時到站時間</span>
+        <span class="update-time" id="update_time">正在連線...</span>
+    </div>
+
+    <!-- 巴士列表容器 -->
+    <div id="dashboard"></div>
+
+    <script>
+        // ==========================================
+        // 內置保留你的專屬車站 ID，default_dest 作為連線失敗時的備用顯示
+        // ==========================================
+        const BUS_CONFIG = [
+            { route: "6",  stop_id: "9AE6CD527594C632", default_dest: "尖沙咀碼頭" }, 
+            { route: "46", stop_id: "BE47845FF3E717FC", default_dest: "佐敦(西九龍站)" }, 
+            { route: "86", stop_id: "D32CCF88E6FD8621", default_dest: "黃泥頭" },
+        ];
+
+        async function updateAllETA() {
+            let htmlContent = "";
+            
+            for (const bus of BUS_CONFIG) {
+                try {
+                    const url = `https://data.etabus.gov.hk/v1/transport/kmb/eta/${bus.stop_id}/${bus.route}/1`;
+                    const response = await fetch(url);
+                    const json = await response.json();
+                    
+                    let destName = bus.default_dest; // 預設目的地名稱
+                    let timesArray = [];
+                    
+                    if (json.data && json.data.length > 0) {
+                        // 💡 【逆向智能過濾】剔除所有寫著去「美孚」的落客車次（完美解決 6 號和 86 號總站重疊問題）
+                        // 這樣過路站（46號）就不會被任何關鍵字鎖死，就算九巴改名，也能 100% 放行！
+                        const filteredData = json.data.filter(item => !item.dest_tc.includes("美孚"));
+                        
+                        if (filteredData.length > 0) {
+                            // 動態獲取九巴官方目前最新的目的地中文字，直接顯示在看板上
+                            destName = filteredData[0].dest_tc;
+                            
+                            // 取最近的 2 班車時間
+                            filteredData.slice(0, 2).forEach(item => {
+                                if (item.eta) {
+                                    const diffMins = Math.max(0, Math.floor((new Date(item.eta) - new Date()) / 1000 / 60));
+                                    timesArray.push(`<b>${diffMins}</b>分`);
+                                } else if (item.rmk_tc) {
+                                    timesArray.push(item.rmk_tc); 
+                                }
+                            });
+                        }
+                    }
+                    
+                    const etaDisplay = timesArray.length > 0 ? timesArray.join(' / ') : '<span class="error-msg">暫無班次</span>';
+                    
+                    htmlContent += `
+                        <div class="bus-row">
+                            <div class="route-badge">${bus.route}</div>
+                            <div class="route-info">
+                                <div class="destination">往 ${destName}</div>
+                            </div>
+                            <div class="eta-times">${etaDisplay}</div>
+                        </div>
+                    `;
+                    
+                } catch (error) {
+                    htmlContent += `
+                        <div class="bus-row">
+                            <div class="route-badge">${bus.route}</div>
+                            <div class="route-info"><div class="destination error-msg">數據連線失敗</div></div>
+                            <div class="eta-times">--</div>
+                        </div>
+                    `;
+                }
+            }
+            
+            document.getElementById('dashboard').innerHTML = htmlContent;
+            
+            // 更新頂部的最後整理時間
+            const now = new Date();
+            document.getElementById('update_time').innerText = `最後更新: ${now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+        }
+
+        // 網頁加載時立刻執行第一次
+        updateAllETA();
+        
+        // 🔄【每 60 秒自動更新】完全不需要手動重新整理，網頁會在背景準時刷新數據
+        setInterval(updateAllETA, 60000);
+    </script>
+</body>
+</html>

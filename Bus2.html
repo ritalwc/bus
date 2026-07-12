@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>出行巴士看板 (全自動自適應版)</title>
+    <style>
+        /* 🛠️ 核心精髓：全部單位改為 vw，畫面會像橡皮筋一樣跟著螢幕大小自動縮放 */
+        body {
+            background-color: white;
+            color: black;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 4vw; /* 內邊距隨螢幕寬度自動調整 */
+        }
+        
+        .header {
+            font-size: 4vw; /* 在大螢幕自動變大，細螢幕自動變細 */
+            font-weight: bold;
+            border-bottom: 0.6vw solid black;
+            padding-bottom: 1.5vw;
+            margin-bottom: 1.5vw;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        
+        .update-time {
+            font-size: 2.8vw;
+            color: #555;
+            font-weight: normal;
+        }
+        
+        /* 每條巴士線佔用一行 */
+        .bus-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 0.4vw solid black;
+            padding: 3.5vw 0;
+        }
+        
+        /* 路線號碼區塊 */
+        .route-badge {
+            font-size: 10vw; /* 巨大的號碼比例 */
+            font-weight: 900;
+            width: 25vw; /* 寬度固定佔螢幕的 25%，不管甚麼設備都不會出界 */
+            letter-spacing: -0.2vw;
+        }
+        
+        .route-info {
+            flex: 1;
+            padding-left: 1.5vw;
+        }
+        
+        .destination {
+            font-size: 4vw;
+            font-weight: bold;
+        }
+        
+        /* 到站時間顯示區塊 */
+        .eta-times {
+            font-size: 4.5vw;
+            text-align: right;
+            font-weight: bold;
+            width: 40vw; /* 時間區塊固定佔螢幕寬度的 40%，防止折行 */
+        }
+        
+        /* 剩餘分鐘的數字加上底線 */
+        .eta-times b {
+            font-size: 6.8vw;
+            text-decoration: underline;
+        }
+        
+        .error-msg {
+            color: #666;
+            font-style: italic;
+            font-size: 3vw;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <span>🚌 實時到站時間</span>
+        <span class="update-time" id="update_time">正在連線...</span>
+    </div>
+
+    <!-- 巴士列表容器 -->
+    <div id="dashboard"></div>
+
+    <script>
+        const BUS_CONFIG = [
+            { route: "6",  stop_id: "9AE6CD527594C632", default_dest: "尖沙咀碼頭" }, 
+            { route: "46", stop_id: "BE47845FF3E717FC", default_dest: "佐敦(西九龍站)" }, 
+            { route: "86", stop_id: "D32CCF88E6FD8621", default_dest: "黃泥頭" },
+        ];
+
+        async function updateAllETA() {
+            let htmlContent = "";
+            
+            for (const bus of BUS_CONFIG) {
+                try {
+                    const url = `https://data.etabus.gov.hk/v1/transport/kmb/eta/${bus.stop_id}/${bus.route}/1`;
+                    const response = await fetch(url);
+                    const json = await response.json();
+                    
+                    let destName = bus.default_dest; 
+                    let timesArray = [];
+                    
+                    if (json.data && json.data.length > 0) {
+                        const filteredData = json.data.filter(item => !item.dest_tc.includes("美孚"));
+                        
+                        if (filteredData.length > 0) {
+                            destName = filteredData[0].dest_tc;
+                            
+                            filteredData.slice(0, 2).forEach(item => {
+                                if (item.eta) {
+                                    const diffMins = Math.max(0, Math.floor((new Date(item.eta) - new Date()) / 1000 / 60));
+                                    timesArray.push(`<b>${diffMins}</b>分`);
+                                } else if (item.rmk_tc) {
+                                    timesArray.push(item.rmk_tc); 
+                                }
+                            });
+                        }
+                    }
+                    
+                    const etaDisplay = timesArray.length > 0 ? timesArray.join(' / ') : '<span class="error-msg">暫無班次</span>';
+                    
+                    htmlContent += `
+                        <div class="bus-row">
+                            <div class="route-badge">${bus.route}</div>
+                            <div class="route-info">
+                                <div class="destination">往 ${destName}</div>
+                            </div>
+                            <div class="eta-times">${etaDisplay}</div>
+                        </div>
+                    `;
+                    
+                } catch (error) {
+                    htmlContent += `
+                        <div class="bus-row">
+                            <div class="route-badge">${bus.route}</div>
+                            <div class="route-info"><div class="destination error-msg">數據連線失敗</div></div>
+                            <div class="eta-times">--</div>
+                        </div>
+                    `;
+                }
+            }
+            
+            document.getElementById('dashboard').innerHTML = htmlContent;
+            
+            const now = new Date();
+            document.getElementById('update_time').innerText = `最後更新: ${now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}`;
+        }
+
+        updateAllETA();
+        
+        // 🔄 保持 20 秒自動刷新
+        setInterval(updateAllETA, 20000);
+    </script>
+</body>
+</html>
